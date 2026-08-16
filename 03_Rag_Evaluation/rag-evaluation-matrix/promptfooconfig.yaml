@@ -1,0 +1,196 @@
+# promptfooconfig.yaml
+# RAG Evaluation Matrix
+# Tests a simulated retrieval step (pre-fetched context chunks per test
+# case) against a generation prompt, using Promptfoo's built-in RAG
+# assertions: context-relevance, context-faithfulness, context-recall —
+# plus llm-rubric for edge-case behavior and answer-directness. (Promptfoo's
+# built-in answer-relevance assertion needs a separate embedding provider,
+# which Groq's free tier doesn't offer — see README for details.)
+#
+# Run with: promptfoo eval -j 1 --delay 3000
+# View with: promptfoo view
+
+description: "RAG evaluation: strict grounding vs. hybrid prompt"
+
+prompts:
+  - file://prompts/prompt-strict.txt
+  - file://prompts/prompt-hybrid.txt
+
+# Groq free tier only — get a key at https://console.groq.com
+providers:
+  - id: groq:llama-3.1-8b-instant
+    label: "Llama 3.1 8B (Groq, fast)"
+    config:
+      temperature: 0.3
+      max_tokens: 500
+
+  - id: groq:llama-3.3-70b-versatile
+    label: "Llama 3.3 70B (Groq, stronger)"
+    config:
+      temperature: 0.3
+      max_tokens: 500
+
+defaultTest:
+  options:
+    # Judge model kept on the 8B model to conserve the 70B model's daily
+    # token budget for the model-under-test calls (Groq's free tier caps
+    # tokens per day per model — see README for details).
+    provider: groq:llama-3.1-8b-instant
+
+tests:
+  # ============================================================
+  # CATEGORY A — Grounded QA (context is sufficient and relevant)
+  # The normal case. All 4 built-in RAG metrics should score well.
+  # ============================================================
+  - vars:
+      query: "What was Acme Corp's Q3 2026 revenue?"
+      context:
+        - "Acme Corp reported Q3 2026 revenue of $42 million, up 8% year-over-year, driven primarily by its new cloud analytics product line launched in June 2026."
+    assert:
+      - type: context-relevance
+        threshold: 0.7
+      - type: context-faithfulness
+        threshold: 0.7
+      - type: llm-rubric
+        value: "Response directly and specifically answers the question asked, rather than giving a tangential or incomplete answer"
+      - type: context-recall
+        value: "Acme Corp's Q3 2026 revenue was $42 million."
+        threshold: 0.7
+
+  - vars:
+      query: "Who directed the film 'Nightfall Station' and when was it released?"
+      context:
+        - "'Nightfall Station' is a 2024 mystery thriller directed by Priya Anand. It premiered at the Toronto International Film Festival in September 2024 before a wide theatrical release in November 2024."
+    assert:
+      - type: context-relevance
+        threshold: 0.7
+      - type: context-faithfulness
+        threshold: 0.7
+      - type: llm-rubric
+        value: "Response directly and specifically answers the question asked, rather than giving a tangential or incomplete answer"
+      - type: context-recall
+        value: "Nightfall Station was directed by Priya Anand and released in 2024."
+        threshold: 0.7
+
+  - vars:
+      query: "What is the maximum weight capacity of the TrailMaster X200 backpack?"
+      context:
+        - "The TrailMaster X200 backpack has a 65-liter capacity and a maximum recommended load of 20kg (44 lbs). It features an adjustable torso length and a rain cover stored in the base pocket."
+    assert:
+      - type: context-relevance
+        threshold: 0.7
+      - type: context-faithfulness
+        threshold: 0.7
+      - type: llm-rubric
+        value: "Response directly and specifically answers the question asked, rather than giving a tangential or incomplete answer"
+
+  # ============================================================
+  # CATEGORY B — Noisy context (relevant chunk + irrelevant distractors)
+  # Tests whether the model stays focused on the relevant chunk instead
+  # of getting confused or diluting its answer with unrelated content.
+  # ============================================================
+  - vars:
+      query: "What is Acme Corp's refund policy?"
+      context:
+        - "Acme Corp offers a 30-day money-back guarantee on all annual subscriptions. Refund requests must be submitted through the billing portal."
+        - "Acme Corp's headquarters relocated to Austin, Texas in 2023."
+        - "The company's mascot, a cartoon fox named Ace, was introduced in a 2019 marketing campaign."
+    assert:
+      - type: llm-rubric
+        value: "Response correctly answers using the refund policy chunk and does not get distracted by the irrelevant headquarters or mascot information"
+
+  - vars:
+      query: "How many liters does the TrailMaster X200 backpack hold?"
+      context:
+        - "The TrailMaster X200 backpack has a 65-liter capacity."
+        - "The TrailMaster brand was founded in 1987 and is known for durable outdoor gear."
+        - "TrailMaster's best-selling product last year was actually a tent, not a backpack."
+    assert:
+      - type: llm-rubric
+        value: "Response correctly states 65 liters and does not confuse the answer with the unrelated brand history or best-seller trivia"
+
+  - vars:
+      query: "What was Nightfall Station's festival premiere date?"
+      context:
+        - "'Nightfall Station' premiered at the Toronto International Film Festival on September 8, 2024."
+        - "The Toronto International Film Festival has run annually since 1976."
+        - "Priya Anand's previous film won an award at Sundance in 2021."
+    assert:
+      - type: llm-rubric
+        value: "Response correctly identifies September 8, 2024 as the premiere date, without being thrown off by the unrelated festival history or award trivia"
+
+  # ============================================================
+  # CATEGORY C — Insufficient context (info genuinely isn't there)
+  # This is where prompt-strict and prompt-hybrid should diverge —
+  # strict should refuse to fill the gap, hybrid may supplement but
+  # must clearly label what's not from the context.
+  # ============================================================
+  - vars:
+      query: "What is Acme Corp's projected Q4 2026 revenue?"
+      context:
+        - "Acme Corp reported Q3 2026 revenue of $42 million, up 8% year-over-year."
+    assert:
+      - type: llm-rubric
+        value: "Response clearly states that Q4 projections are not present in the given context, rather than inventing a specific number"
+
+  - vars:
+      query: "What color is the TrailMaster X200 backpack available in?"
+      context:
+        - "The TrailMaster X200 backpack has a 65-liter capacity and a maximum recommended load of 20kg."
+    assert:
+      - type: llm-rubric
+        value: "Response clearly states that color options are not mentioned in the given context, rather than inventing a specific color"
+
+  - vars:
+      query: "What was the box office revenue for 'Nightfall Station'?"
+      context:
+        - "'Nightfall Station' is a 2024 mystery thriller directed by Priya Anand, released in November 2024."
+    assert:
+      - type: llm-rubric
+        value: "Response clearly states that box office figures are not present in the given context, rather than inventing a specific number"
+
+  # ============================================================
+  # CATEGORY D — Conflicting context (two chunks disagree)
+  # Tests whether the model surfaces the conflict instead of silently
+  # picking one version and presenting it as the single truth.
+  # ============================================================
+  - vars:
+      query: "How many employees does Acme Corp have?"
+      context:
+        - "As of the 2026 annual report, Acme Corp has approximately 1,200 employees."
+        - "Acme Corp's careers page states the company has grown to over 1,500 team members."
+    assert:
+      - type: llm-rubric
+        value: "Response points out that the two sources give different employee counts, rather than confidently stating just one number as if there's no discrepancy"
+
+  - vars:
+      query: "What is the maximum load capacity of the TrailMaster X200?"
+      context:
+        - "The product manual lists a maximum recommended load of 20kg for the TrailMaster X200."
+        - "A promotional flyer for the TrailMaster X200 advertises it as rated for loads up to 25kg."
+    assert:
+      - type: llm-rubric
+        value: "Response points out the discrepancy between the two figures rather than picking one silently"
+
+  # ============================================================
+  # CATEGORY E — Multi-hop (answer requires combining two chunks)
+  # Tests whether the model can synthesize information spread across
+  # more than one retrieved chunk rather than only using the first one.
+  # ============================================================
+  - vars:
+      query: "How much did Acme Corp's revenue grow in dollar terms between Q2 and Q3 2026?"
+      context:
+        - "Acme Corp reported Q3 2026 revenue of $42 million."
+        - "Acme Corp's Q2 2026 revenue was $38.9 million, according to the same earnings report."
+    assert:
+      - type: llm-rubric
+        value: "Response correctly calculates the growth as approximately $3.1 million by combining figures from both chunks, rather than only using one chunk"
+
+  - vars:
+      query: "Was the TrailMaster X200 released before or after the company relocated its headquarters?"
+      context:
+        - "The TrailMaster X200 backpack was released in 2021."
+        - "TrailMaster relocated its headquarters to Denver, Colorado in 2019."
+    assert:
+      - type: llm-rubric
+        value: "Response correctly concludes the X200 was released after the headquarters relocation, by combining both dates from the two chunks"

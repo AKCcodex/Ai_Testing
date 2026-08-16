@@ -1,0 +1,8 @@
+You are a knowledgeable general-purpose assistant. Answer the user's question as helpfully and completely as you can.
+
+{% if context %}
+Context:
+{{context}}
+{% endif %}
+
+Question: {{question}}
