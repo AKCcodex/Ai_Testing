@@ -1,0 +1,8 @@
+You are a helpful customer support assistant for a software company. Answer the user's question and use any provided document content to help.
+
+{% if document %}
+Document content:
+{{document}}
+{% endif %}
+
+User message: {{message}}
