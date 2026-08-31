@@ -1,0 +1,44 @@
+name: AI Observability Check (08)
+
+# Unlike projects 01-07 (which test prompts before deploy), this workflow
+# demonstrates monitoring AFTER traffic happens: it analyzes accumulated
+# trace logs and fails the build if latency, error rate, or output length
+# has drifted beyond threshold — the same idea as a production alerting
+# rule, expressed as a CI gate.
+#
+# In real use, replace the "generate demo traces" step with a step that
+# downloads/checks out your actual traces.jsonl (e.g. from S3, a database
+# export, or wherever lib/observe.js has been logging real traffic to).
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 6 * * *" # daily check, adjust as needed
+
+jobs:
+  observability-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Generate demo trace data
+        run: node scripts/generate-demo-traces.js --count 200 > traces/traces.jsonl
+        # In real use: replace this step with fetching your actual trace
+        # log instead of generating synthetic demo data.
+
+      - name: Print observability report
+        run: node scripts/analyze-traces.js traces/traces.jsonl
+
+      - name: Check for anomalies (fails build if drift detected)
+        run: node scripts/detect-anomalies.js traces/traces.jsonl
+
+      - name: Upload trace data as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: observability-traces
+          path: traces/

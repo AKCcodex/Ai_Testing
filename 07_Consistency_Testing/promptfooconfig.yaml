@@ -1,0 +1,180 @@
+# promptfooconfig.yaml
+# Consistency Testing (07)
+# Tests whether a model gives STABLE answers — across repeated identical
+# calls, across paraphrased wording of the same question, across reordered
+# multiple-choice options, across different output-format requests, and
+# across logically-equivalent numeric framings.
+#
+# Every test case here has an objectively correct/expected answer or
+# required shape. Inconsistency shows up directly as a failed assertion —
+# no custom cross-output comparison magic needed. See scripts/ for a
+# post-run analysis script that groups --repeat runs and prints an actual
+# consistency percentage per test case.
+#
+# Run with: promptfoo eval -j 1 --delay 3000
+# View with: promptfoo view
+
+description: "Consistency testing: repeats, paraphrases, order bias, format, numeric equivalence"
+
+prompts:
+  - file://prompts/direct-answer.txt
+
+providers:
+  - id: groq:openai/gpt-oss-20b
+    label: "GPT-OSS 20B (Groq, fast)"
+    config:
+      temperature: 0.7   # non-zero on purpose — consistency testing is more meaningful when sampling varies
+      max_tokens: 200
+
+  - id: groq:openai/gpt-oss-120b
+    label: "GPT-OSS 120B (Groq, stronger)"
+    config:
+      temperature: 0.7
+      max_tokens: 200
+
+defaultTest:
+  options:
+    provider: groq:openai/gpt-oss-20b
+
+# Every test case in this file is run this many times. Repeats show up as
+# separate result rows sharing the same testIdx/prompt/provider — use
+# scripts/analyze-consistency.js on the exported JSON to see the actual
+# per-test consistency percentage instead of eyeballing repeated rows.
+evaluateOptions:
+  repeat: 5
+
+tests:
+  # ============================================================
+  # CATEGORY A — Repeat consistency
+  # Same exact input, run 5x each (via evaluateOptions.repeat above).
+  # Each has one objectively correct answer — any variation across the
+  # 5 repeats for the same test IS the inconsistency being measured.
+  # ============================================================
+  - vars:
+      question: "What is 17 multiplied by 23? Answer with only the number, nothing else."
+    assert:
+      - type: javascript
+        value: "output.trim() === '391'"
+
+  - vars:
+      question: "What is the capital of Australia? Answer with only the city name, nothing else."
+    assert:
+      - type: icontains
+        value: "Canberra"
+      - type: not-icontains
+        value: "Sydney"
+
+  - vars:
+      question: "Convert 98.6 Fahrenheit to Celsius, rounded to 1 decimal place. Answer with only the number, nothing else."
+    assert:
+      - type: javascript
+        value: "output.trim().replace(/[^0-9.]/g, '') === '37.0'"
+
+  # ============================================================
+  # CATEGORY B — Paraphrase invariance
+  # Same underlying question, worded 3 different ways as separate test
+  # cases. All 3 should reach the same factual answer.
+  # ============================================================
+  - vars:
+      question: "What year did World War II end?"
+    assert:
+      - type: icontains
+        value: "1945"
+
+  - vars:
+      question: "In what year did the Second World War come to a close?"
+    assert:
+      - type: icontains
+        value: "1945"
+
+  - vars:
+      question: "WWII ended in which year? Just the year."
+    assert:
+      - type: icontains
+        value: "1945"
+
+  # ============================================================
+  # CATEGORY C — Order / position sensitivity (multiple-choice bias)
+  # Same question, options reordered between paired test cases. If a
+  # model has positional bias (e.g. "always pick B"), one of each pair
+  # will fail even though the question is logically identical.
+  # ============================================================
+  - vars:
+      question: "Which of these is the largest planet in our solar system? A) Earth B) Jupiter C) Mars D) Venus. Answer with just the letter."
+    assert:
+      - type: javascript
+        value: "output.trim().toUpperCase().startsWith('B')"
+
+  - vars:
+      question: "Which of these is the largest planet in our solar system? A) Jupiter B) Venus C) Earth D) Mars. Answer with just the letter."
+    assert:
+      - type: javascript
+        value: "output.trim().toUpperCase().startsWith('A')"
+
+  - vars:
+      question: "Which of these is NOT a mammal? A) Dolphin B) Shark C) Bat D) Elephant. Answer with just the letter."
+    assert:
+      - type: javascript
+        value: "output.trim().toUpperCase().startsWith('B')"
+
+  - vars:
+      question: "Which of these is NOT a mammal? A) Shark B) Elephant C) Dolphin D) Bat. Answer with just the letter."
+    assert:
+      - type: javascript
+        value: "output.trim().toUpperCase().startsWith('A')"
+
+  # ============================================================
+  # CATEGORY D — Format consistency
+  # Same output-format instruction applied to 3 different underlying
+  # questions. The shape of the response should stay identical even
+  # though the content changes each time.
+  # ============================================================
+  - vars:
+      question: "Return ONLY a JSON object with exactly two fields, 'answer' and 'confidence' (confidence must be exactly one of: low, medium, high). Question to answer: What is the boiling point of water at sea level in Celsius?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const obj = JSON.parse(output);
+          return 'answer' in obj && ['low','medium','high'].includes(obj.confidence);
+
+  - vars:
+      question: "Return ONLY a JSON object with exactly two fields, 'answer' and 'confidence' (confidence must be exactly one of: low, medium, high). Question to answer: What is the smallest prime number?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const obj = JSON.parse(output);
+          return 'answer' in obj && ['low','medium','high'].includes(obj.confidence);
+
+  - vars:
+      question: "Return ONLY a JSON object with exactly two fields, 'answer' and 'confidence' (confidence must be exactly one of: low, medium, high). Question to answer: Is the Great Wall of China visible from space with the naked eye?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const obj = JSON.parse(output);
+          return 'answer' in obj && ['low','medium','high'].includes(obj.confidence);
+
+  # ============================================================
+  # CATEGORY F — Numeric/logical equivalence across framings
+  # Three different ways of asking for the same underlying calculation.
+  # All should produce the same number.
+  # ============================================================
+  - vars:
+      question: "What is 15% of 200? Answer with only the number, nothing else."
+    assert:
+      - type: javascript
+        value: "output.trim().replace(/[^0-9.]/g, '') === '30'"
+
+  - vars:
+      question: "What is 200 multiplied by 0.15? Answer with only the number, nothing else."
+    assert:
+      - type: javascript
+        value: "output.trim().replace(/[^0-9.]/g, '') === '30'"
+
+  - vars:
+      question: "If something costs $200 and gets a 15% discount, how many dollars is the discount worth? Answer with only the number, nothing else."
+    assert:
+      - type: javascript
+        value: "output.trim().replace(/[^0-9.]/g, '') === '30'"

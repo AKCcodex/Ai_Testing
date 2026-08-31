@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Observability Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #14181F;
+    --bg-panel: #1B212B;
+    --border: #2A3240;
+    --text: #E5E1D8;
+    --text-dim: #8A93A3;
+    --good: #4FD1A5;
+    --warn: #E8A33D;
+    --bad: #E2554F;
+    --accent: #7C9CBF;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    padding: 32px 24px 64px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 14px;
+    margin: 0 0 28px;
+  }
+  .loader {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 16px 20px;
+    margin-bottom: 28px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .loader label {
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  input[type="file"] {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--text);
+  }
+  input[type="file"]::file-selector-button {
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    border-radius: 3px;
+    padding: 6px 12px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    margin-right: 10px;
+  }
+  .status-line {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  section { margin-bottom: 32px; }
+  .section-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin: 0 0 12px;
+    font-weight: 500;
+  }
+  .stat-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .stat {
+    background: var(--bg-panel);
+    padding: 16px 18px;
+  }
+  .stat .value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 24px;
+    font-weight: 500;
+  }
+  .stat .label {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+  .stat.good .value { color: var(--good); }
+  .stat.warn .value { color: var(--warn); }
+  .stat.bad .value { color: var(--bad); }
+
+  .budget-block {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 16px 18px;
+    margin-bottom: 10px;
+  }
+  .budget-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+  }
+  .budget-header .model-name { color: var(--text); font-weight: 500; }
+  .budget-header .pct { font-weight: 600; }
+  .budget-bar-track {
+    height: 8px;
+    background: #232B38;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .budget-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.4s ease;
+  }
+  .budget-detail {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 6px;
+  }
+
+  .chart-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 720px) { .chart-grid { grid-template-columns: 1fr; } }
+  .chart-panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 16px;
+  }
+  .chart-panel h3 {
+    font-size: 13px;
+    font-weight: 500;
+    margin: 0 0 12px;
+    color: var(--text-dim);
+  }
+  .chart-panel canvas { max-height: 220px; }
+
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+  .empty-state code {
+    font-family: 'IBM Plex Mono', monospace;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: var(--accent);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AI Observability Dashboard</h1>
+  <p class="subtitle">Load a traces.jsonl file to inspect call volume, latency, errors, and daily token budget usage.</p>
+
+  <div class="loader">
+    <label for="fileInput">Trace file</label>
+    <input type="file" id="fileInput" accept=".jsonl,.json,.log,.txt">
+    <span class="status-line" id="statusLine"></span>
+  </div>
+
+  <div id="emptyState" class="empty-state">
+    No data loaded yet. Generate demo data with <code>node scripts/generate-demo-traces.js &gt; traces/traces.jsonl</code>,
+    then load that file above — or point it at a real trace log from <code>lib/observe.js</code>.
+  </div>
+
+  <div id="dashboardContent" style="display:none;">
+    <section>
+      <p class="section-label">Overview</p>
+      <div class="stat-row" id="statRow"></div>
+    </section>
+
+    <section>
+      <p class="section-label">Daily token budget by model</p>
+      <div id="budgetBlocks"></div>
+    </section>
+
+    <section>
+      <p class="section-label">Trends</p>
+      <div class="chart-grid">
+        <div class="chart-panel">
+          <h3>Latency over time (ms)</h3>
+          <canvas id="latencyChart"></canvas>
+        </div>
+        <div class="chart-panel">
+          <h3>Cumulative tokens vs. daily cap</h3>
+          <canvas id="tokenChart"></canvas>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+const COLORS = {
+  good: '#4FD1A5',
+  warn: '#E8A33D',
+  bad: '#E2554F',
+  accent: '#7C9CBF',
+  dim: '#8A93A3',
+  series: ['#7C9CBF', '#E8A33D', '#4FD1A5', '#C77DFF', '#F2A65A'],
+};
+
+document.getElementById('fileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  const statusEl = document.getElementById('statusLine');
+  try {
+    const events = text.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+    statusEl.textContent = `Loaded ${events.length} events from ${file.name}`;
+    statusEl.style.color = COLORS.good;
+    render(events);
+  } catch (err) {
+    statusEl.textContent = `Failed to parse file: ${err.message}`;
+    statusEl.style.color = COLORS.bad;
+  }
+});
+
+function percentile(sortedArr, p) {
+  if (sortedArr.length === 0) return null;
+  const idx = Math.ceil((p / 100) * sortedArr.length) - 1;
+  return sortedArr[Math.max(0, Math.min(idx, sortedArr.length - 1))];
+}
+
+let latencyChartInstance = null;
+let tokenChartInstance = null;
+
+function render(events) {
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('dashboardContent').style.display = 'block';
+
+  events.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+  const total = events.length;
+  const errorEvents = events.filter(e => e.status === 'error');
+  const successEvents = events.filter(e => e.status === 'success');
+  const errorRate = (errorEvents.length / total) * 100;
+  const latencies = successEvents.map(e => e.latencyMs).filter(x => typeof x === 'number').sort((a,b) => a-b);
+  const p95 = percentile(latencies, 95);
+
+  const statRow = document.getElementById('statRow');
+  statRow.innerHTML = '';
+  const stats = [
+    { label: 'Total calls', value: total, cls: '' },
+    { label: 'Errors', value: `${errorEvents.length} (${errorRate.toFixed(1)}%)`, cls: errorRate > 10 ? 'bad' : errorRate > 3 ? 'warn' : 'good' },
+    { label: 'Latency p95', value: p95 ? `${p95}ms` : '—', cls: '' },
+    { label: 'Models seen', value: new Set(events.map(e => e.model)).size, cls: '' },
+  ];
+  for (const s of stats) {
+    const div = document.createElement('div');
+    div.className = `stat ${s.cls}`;
+    div.innerHTML = `<div class="value">${s.value}</div><div class="label">${s.label}</div>`;
+    statRow.appendChild(div);
+  }
+
+  // --- Budget blocks ---
+  const models = [...new Set(events.map(e => e.model))];
+  const budgetContainer = document.getElementById('budgetBlocks');
+  budgetContainer.innerHTML = '';
+  for (const model of models) {
+    const modelSuccesses = events.filter(e => e.model === model && e.status === 'success');
+    const totalTokens = modelSuccesses.reduce((sum, e) => sum + (e.totalTokens || 0), 0);
+    const cap = modelSuccesses.find(e => e.dailyCapForModel)?.dailyCapForModel;
+    if (!cap) continue;
+    const pct = Math.min((totalTokens / cap) * 100, 100);
+    const color = pct >= 90 ? COLORS.bad : pct >= 70 ? COLORS.warn : COLORS.good;
+
+    const block = document.createElement('div');
+    block.className = 'budget-block';
+    block.innerHTML = `
+      <div class="budget-header">
+        <span class="model-name">${model}</span>
+        <span class="pct" style="color:${color}">${pct.toFixed(1)}%</span>
+      </div>
+      <div class="budget-bar-track">
+        <div class="budget-bar-fill" style="width:${pct}%; background:${color};"></div>
+      </div>
+      <div class="budget-detail">${totalTokens.toLocaleString()} / ${cap.toLocaleString()} tokens used today · ${(cap - totalTokens).toLocaleString()} remaining</div>
+    `;
+    budgetContainer.appendChild(block);
+  }
+
+  // --- Latency chart ---
+  const ctx1 = document.getElementById('latencyChart').getContext('2d');
+  if (latencyChartInstance) latencyChartInstance.destroy();
+  const datasets1 = models.map((model, i) => {
+    const modelEvents = successEvents.filter(e => e.model === model);
+    return {
+      label: model,
+      data: modelEvents.map(e => ({ x: new Date(e.timestamp), y: e.latencyMs })),
+      borderColor: COLORS.series[i % COLORS.series.length],
+      backgroundColor: COLORS.series[i % COLORS.series.length],
+      pointRadius: 2,
+      tension: 0.2,
+      borderWidth: 1.5,
+    };
+  });
+  latencyChartInstance = new Chart(ctx1, {
+    type: 'line',
+    data: { datasets: datasets1 },
+    options: chartOptions('ms'),
+  });
+
+  // --- Cumulative token chart ---
+  const ctx2 = document.getElementById('tokenChart').getContext('2d');
+  if (tokenChartInstance) tokenChartInstance.destroy();
+  const datasets2 = models.map((model, i) => {
+    const modelEvents = successEvents.filter(e => e.model === model);
+    let cum = 0;
+    return {
+      label: model,
+      data: modelEvents.map(e => { cum += (e.totalTokens || 0); return { x: new Date(e.timestamp), y: cum }; }),
+      borderColor: COLORS.series[i % COLORS.series.length],
+      backgroundColor: COLORS.series[i % COLORS.series.length] + '22',
+      fill: true,
+      pointRadius: 0,
+      tension: 0.1,
+      borderWidth: 1.5,
+    };
+  });
+  tokenChartInstance = new Chart(ctx2, {
+    type: 'line',
+    data: { datasets: datasets2 },
+    options: chartOptions('tokens'),
+  });
+}
+
+function chartOptions(unit) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'nearest', intersect: false },
+    plugins: {
+      legend: {
+        labels: { color: '#8A93A3', font: { family: 'IBM Plex Mono', size: 10 }, boxWidth: 10 },
+      },
+    },
+    scales: {
+      x: {
+        type: 'time',
+        time: { unit: 'hour' },
+        ticks: { color: '#8A93A3', font: { family: 'IBM Plex Mono', size: 10 } },
+        grid: { color: '#2A3240' },
+      },
+      y: {
+        ticks: { color: '#8A93A3', font: { family: 'IBM Plex Mono', size: 10 } },
+        grid: { color: '#2A3240' },
+        title: { display: true, text: unit, color: '#8A93A3', font: { size: 10 } },
+      },
+    },
+  };
+}
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-date-fns/3.0.0/chartjs-adapter-date-fns.bundle.min.js"></script>
+</body>
+</html>
